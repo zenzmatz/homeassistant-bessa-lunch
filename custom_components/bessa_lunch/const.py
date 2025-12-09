@@ -3,6 +3,7 @@
 DOMAIN = "bessa_lunch"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
+CONF_VENUE_ID = "venue_id"
 
 # Bessa API URLs
 BESSA_BASE_URL = "https://api.bessa.app"
@@ -10,7 +11,6 @@ BESSA_LOGIN_URL = f"{BESSA_BASE_URL}/v1/auth/login/"
 BESSA_ORDERS_URL = f"{BESSA_BASE_URL}/v1/user/orders"
 
 # Bessa API configuration
-VENUE_ID = VENUE_ID  # Configurable venue
 MENU_TYPE = 7   # Canteen menu type
 
 # Device info constants

@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 import aiohttp
 
-from .const import BESSA_BASE_URL, BESSA_LOGIN_URL, BESSA_ORDERS_URL, VENUE_ID, MENU_TYPE
+from .const import BESSA_BASE_URL, BESSA_LOGIN_URL, BESSA_ORDERS_URL, MENU_TYPE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,11 +24,13 @@ class BessaAPIClient:
         self,
         username: str,
         password: str,
+        venue_id: int,
         session: aiohttp.ClientSession,
     ) -> None:
         """Initialize the API client."""
         self.username = username
         self.password = password
+        self.venue_id = venue_id
         self.session = session
         self._token: str | None = None
     
@@ -111,7 +113,7 @@ class BessaAPIClient:
             
             # Add query parameters for efficient filtering
             params = {
-                "venue": VENUE_ID,  # Filter to your company/venue only
+                "venue": self.venue_id,  # Filter by configured venue
                 "deleted__isnull": "true",  # Exclude deleted orders
                 "date__gte": start_date.isoformat(),  # Orders from last 7 days
                 "ordering": "-date",  # Newest first
@@ -216,8 +218,8 @@ class BessaAPIClient:
         
         try:
             # Bessa API endpoint for menu
-            # venue_id is configurable, menu_type 7 = canteen menu
-            url = f"{BESSA_BASE_URL}/v1/venues/{VENUE_ID}/menu/{MENU_TYPE}/{date}/"
+            # menu_type 7 = canteen menu
+            url = f"{BESSA_BASE_URL}/v1/venues/{self.venue_id}/menu/{MENU_TYPE}/{date}/"
             
             headers = {
                 "Authorization": f"Token {self._token}",

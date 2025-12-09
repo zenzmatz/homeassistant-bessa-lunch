@@ -26,6 +26,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api_client = BessaAPIClient(
         username=entry.data["username"],
         password=entry.data["password"],
+        venue_id=entry.data["venue_id"],
         session=aiohttp_client.async_get_clientsession(hass),
     )
     

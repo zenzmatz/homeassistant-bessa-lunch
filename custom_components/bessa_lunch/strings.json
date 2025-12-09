@@ -5,8 +5,12 @@
         "title": "Set up Bessa Lunch",
         "description": "Enter your Bessa lunch ordering credentials",
         "data": {
-          "username": "Username/Email",
-          "password": "Password"
+          "username": "Email",
+          "password": "Password",
+          "venue_id": "Venue ID"
+        },
+        "data_description": {
+          "venue_id": "Find this in your Bessa web portal API calls (e.g., /venues/123/menu → 123)"
         }
       }
     },

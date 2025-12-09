@@ -1,6 +1,6 @@
 # Bessa Lunch Orders
 
-Check your daily lunch orders and menus from the Bessa app (your company/venue) directly in Home Assistant.
+Check your daily lunch orders and menus from the Bessa app directly in Home Assistant.
 
 ## Features
 
@@ -11,7 +11,7 @@ Check your daily lunch orders and menus from the Bessa app (your company/venue) 
 
 ## Quick Start
 
-1. Add your Bessa credentials (e.g., `company-1234@bessa.app`)
+1. Add your Bessa credentials and venue ID
 2. 14 entities will be created (7 order + 7 menu sensors)
 3. Use in automations to get notified when lunch is ready!
 

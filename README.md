@@ -2,9 +2,9 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
 
-Custom Home Assistant integration for checking lunch orders from the Bessa app (your company/venue).
+Custom Home Assistant integration for checking lunch orders from the Bessa app.
 
-**✅ Status: Fully Working!** Successfully tested with your company/venue Bessa system.
+**✅ Status: Fully Working!** Successfully tested with Bessa lunch ordering systems.
 
 ## Features
 
@@ -46,7 +46,24 @@ The integration is configured through the Home Assistant UI:
 1. Go to **Settings** → **Devices & Services**
 2. Click **Add Integration**
 3. Search for **Bessa Lunch**
-4. Enter your Bessa email and password (e.g., `company-1234@bessa.app`)
+4. Enter your credentials:
+   - **Email**: Your Bessa email address (format: `company-1234@bessa.app`)
+   - **Password**: Your Bessa password
+   - **Venue ID**: Your venue/location ID (see below for how to find this)
+
+### Finding Your Venue ID
+
+To find your venue ID:
+
+1. Open your browser's Developer Tools (F12)
+2. Go to the **Network** tab
+3. Log into your Bessa web portal (e.g., `https://web.bessa.app/your-company/`)
+4. Look for API calls to `api.bessa.app` in the Network tab
+5. Find requests that include `/venues/` or a `venue=` parameter
+6. The number is your venue ID (e.g., `123` in `/venues/123/menu`)
+
+**Example API URLs:**
+- `https://api.bessa.app/v1/user/orders?venue=123` → venue ID is `123`
 
 ## Entities Created
 
@@ -206,7 +223,6 @@ The CLI tool shows:
 
 - **Update Interval**: 30 minutes
 - **API Base**: `https://api.bessa.app/v1/`
-- **Venue**: Your venue (configure during setup)
 - **Menu Type**: Canteen menu (Type: 7)
 - **Authentication**: Token-based (REST API)
 - **Home Assistant**: 2024.1.0+
@@ -295,7 +311,7 @@ MIT License - See LICENSE file for details.
 
 ## Credits
 
-Created for the your company/venue community. This is an unofficial integration and is not affiliated with Bessa GmbH.
+Created for the Bessa lunch ordering community. This is an unofficial integration and is not affiliated with Bessa GmbH.
 
 ## Disclaimer
 
