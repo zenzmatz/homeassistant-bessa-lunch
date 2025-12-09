@@ -42,6 +42,7 @@ class BessaLunchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             api_client = BessaAPIClient(
                 username=user_input[CONF_USERNAME],
                 password=user_input[CONF_PASSWORD],
+                venue_id=user_input[CONF_VENUE_ID],
                 session=session,
             )
             
