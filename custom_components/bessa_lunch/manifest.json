@@ -1,0 +1,12 @@
+{
+  "domain": "bessa_lunch",
+  "name": "Bessa Lunch Orders",
+  "codeowners": ["@zenzmatz"],
+  "config_flow": true,
+  "documentation": "https://github.com/zenzmatz/homeassistant-bessa-lunch",
+  "issue_tracker": "https://github.com/zenzmatz/homeassistant-bessa-lunch/issues",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "requirements": ["aiohttp>=3.9.0"],
+  "version": "1.0.0"
+}

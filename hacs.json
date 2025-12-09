@@ -1,0 +1,9 @@
+{
+  "name": "Bessa Lunch Orders",
+  "content_in_root": false,
+  "zip_release": false,
+  "filename": "bessa_lunch.zip",
+  "country": ["AT"],
+  "render_readme": true,
+  "homeassistant": "2024.1.0"
+}
