@@ -6,7 +6,7 @@ from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -16,6 +16,8 @@ from .bessa_api import BessaAPIClient
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
+
+SERVICE_CANCEL_ORDER = "cancel_order"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -37,6 +39,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_config_entry_first_refresh()
     
     hass.data[DOMAIN][entry.entry_id] = coordinator
+    
+    # Register services
+    async def handle_cancel_order(call: ServiceCall) -> None:
+        """Handle cancel order service call."""
+        order_id = call.data.get("order_id")
+        
+        if not order_id:
+            _LOGGER.error("Service call missing required parameter: order_id")
+            return
+        
+        success = await api_client.cancel_order(order_id)
+        
+        if success:
+            _LOGGER.info("Order %s cancelled successfully", order_id)
+            # Refresh the coordinator to get updated order data
+            await coordinator.async_refresh()
+        else:
+            _LOGGER.error("Failed to cancel order %s", order_id)
+    
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CANCEL_ORDER,
+        handle_cancel_order
+    )
     
     # Forward the setup to the sensor platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
