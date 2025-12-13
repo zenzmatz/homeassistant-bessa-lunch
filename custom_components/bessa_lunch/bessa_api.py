@@ -270,3 +270,44 @@ class BessaAPIClient:
         except Exception as err:
             _LOGGER.error("Error fetching menu for %s: %s", date, err)
             return {"categories": [], "items": []}
+    
+    async def cancel_order(self, order_id: int) -> bool:
+        """Cancel an order by ID.
+        
+        Returns True if successful, False otherwise.
+        """
+        # Ensure we're authenticated
+        if not self._token:
+            if not await self.authenticate():
+                raise AuthenticationError("Authentication failed")
+        
+        try:
+            # Cancel order endpoint
+            url = f"{BESSA_BASE_URL}/v1/user/orders/{order_id}/cancel/"
+            
+            headers = {
+                "Authorization": f"Token {self._token}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            }
+            
+            async with self.session.patch(url, headers=headers, json={}) as response:
+                if response.status == 200:
+                    _LOGGER.debug("Order %s cancelled successfully", order_id)
+                    return True
+                elif response.status == 401:
+                    # Token expired, re-authenticate and retry
+                    self._token = None
+                    return await self.cancel_order(order_id)
+                else:
+                    error_data = await response.text()
+                    _LOGGER.error(
+                        "Failed to cancel order %s: status %s, response: %s",
+                        order_id,
+                        response.status,
+                        error_data,
+                    )
+                    return False
+        except Exception as err:
+            _LOGGER.error("Error cancelling order %s: %s", order_id, err)
+            return False

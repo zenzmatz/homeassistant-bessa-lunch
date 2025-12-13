@@ -178,6 +178,66 @@ entities:
     name: Tomorrow's Order
 ```
 
+## Services
+
+### Cancel Order
+
+Cancel a Bessa lunch order by its ID.
+
+**Service**: `bessa_lunch.cancel_order`
+
+**Parameters**:
+- `order_id` (required): The ID of the order to cancel (integer)
+
+**Example - Cancel today's order**:
+
+```yaml
+service: bessa_lunch.cancel_order
+data:
+  order_id: "{{ state_attr('sensor.bessa_lunch_order_today', 'order_id') }}"
+```
+
+**Example - Automation to cancel order after specific time**:
+
+```yaml
+automation:
+  - alias: "Cancel lunch order at 10 AM if at home"
+    trigger:
+      - platform: time
+        at: "10:00:00"
+    condition:
+      - condition: state
+        entity_id: sensor.bessa_lunch_order_today
+        state_not: "No order"
+      - condition: state
+        entity_id: person.you
+        state: "home"
+    action:
+      - service: bessa_lunch.cancel_order
+        data:
+          order_id: "{{ state_attr('sensor.bessa_lunch_order_today', 'order_id') }}"
+      - service: notify.mobile_app
+        data:
+          title: "Order Cancelled"
+          message: "Your lunch order was cancelled automatically"
+```
+
+**Example - Script to cancel and notify**:
+
+```yaml
+script:
+  cancel_lunch_order:
+    description: "Cancel today's lunch order and send notification"
+    sequence:
+      - service: bessa_lunch.cancel_order
+        data:
+          order_id: "{{ order_id }}"
+      - service: notify.mobile_app
+        data:
+          title: "🗑️ Order Cancelled"
+          message: "Your lunch order #{{ order_id }} has been cancelled"
+```
+
 ## Order States
 
 The integration displays these order states:
