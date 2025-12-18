@@ -1,0 +1,11 @@
+cancel_order:
+  description: Cancel a Bessa lunch order
+  fields:
+    order_id:
+      description: The ID of the order to cancel
+      example: 12345
+      required: true
+      selector:
+        number:
+          min: 1
+          step: 1
