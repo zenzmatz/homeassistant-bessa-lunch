@@ -90,7 +90,7 @@ ORDER_STATES = {
     7: "Ready",
     8: "Done",
     9: "Cancelled",
-    10: "Rejected",
+    10: "Completed",  # Confirmed via website - shows as COMPLETED
     11: "Failed",
     12: "Expired",
     13: "Pre-ordered"

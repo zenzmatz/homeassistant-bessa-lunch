@@ -11,8 +11,60 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+import re
+
 from . import BessaLunchDataUpdateCoordinator
 from .const import DOMAIN, DEVICE_NAME, DEVICE_MANUFACTURER, DEVICE_MODEL, ORDER_STATES
+
+_ALLERGEN_RE = re.compile(r'\([A-Z]{1,10}\)')
+
+
+def _split_bilingual(text: str) -> tuple[str, str | None]:
+    """Split 'German / English' into (de, en). Returns (text, None) if no slash."""
+    idx = text.find("/")
+    if idx == -1:
+        return text.strip(), None
+    return text[:idx].strip(), text[idx + 1:].strip() or None
+
+
+def _parse_menu_description(description: str) -> dict[str, str | None]:
+    """Split a combined Bessa menu description into course attributes.
+
+    Bessa encodes all courses in one string, separated by allergen codes like
+    (AGLM), (ACFLMN), (ACGHO).  Each text block between allergen codes is one
+    course in serving order: soup first, main second, dessert third.
+    Each course is bilingual: 'German / English'.
+    """
+    empty: dict[str, str | None] = {
+        "soup_de": None, "soup_en": None,
+        "main_dish_de": None, "main_dish_en": None,
+        "dessert_de": None, "dessert_en": None,
+    }
+    if not description:
+        return empty
+
+    raw_courses: list[str] = []
+    last_pos = 0
+    for m in _ALLERGEN_RE.finditer(description):
+        segment = description[last_pos:m.start()].strip()
+        if segment:
+            raw_courses.append(segment)
+        last_pos = m.end()
+    tail = description[last_pos:].strip()
+    if tail:
+        raw_courses.append(tail)
+
+    keys = ["soup", "main_dish", "dessert"]
+    result: dict[str, str | None] = {}
+    for i, key in enumerate(keys):
+        if i < len(raw_courses):
+            de, en = _split_bilingual(raw_courses[i])
+            result[f"{key}_de"] = de
+            result[f"{key}_en"] = en
+        else:
+            result[f"{key}_de"] = None
+            result[f"{key}_en"] = None
+    return result
 
 
 async def async_setup_entry(
@@ -121,6 +173,20 @@ class BessaLunchDailyOrderSensor(CoordinatorEntity, SensorEntity):
             order_date = order.get("date", "")
             pickup_time = order_date[11:16] if len(order_date) > 11 else None
             
+            # Parse courses from the combined menu description.
+            # Bessa bundles all courses (soup / main / dessert) into a single
+            # order item whose description encodes them separated by allergen
+            # codes, e.g. "Zwiebelsuppe(AGLM) Ramen...(ACFLMN) Balisto(ACGHO)".
+            combined_description = ""
+            if len(items) == 1:
+                combined_description = items[0].get("description") or items[0].get("name", "")
+            else:
+                combined_description = " ".join(
+                    item.get("description") or item.get("name", "") for item in items
+                )
+
+            courses = _parse_menu_description(combined_description)
+
             attrs.update({
                 "order_id": order.get("id"),
                 "meals": meals,
@@ -134,6 +200,13 @@ class BessaLunchDailyOrderSensor(CoordinatorEntity, SensorEntity):
                 "number": order.get("number"),
                 "currency": order.get("currency", "EUR"),
                 "payment_method": order.get("payment_method"),
+                "menu": combined_description,
+                "soup_de": courses["soup_de"],
+                "soup_en": courses["soup_en"],
+                "main_dish_de": courses["main_dish_de"],
+                "main_dish_en": courses["main_dish_en"],
+                "dessert_de": courses["dessert_de"],
+                "dessert_en": courses["dessert_en"],
             })
         
         return attrs
@@ -172,6 +245,13 @@ class BessaLunchDailyOrderSensor(CoordinatorEntity, SensorEntity):
         
         return None
     
+    def _get_menu_for_day(self) -> list[dict[str, Any]]:
+        """Get menu data for the specific day."""
+        if not self.coordinator.data:
+            return []
+        target_date = self._get_target_date()
+        return self.coordinator.data.get(f"menu_{target_date}", [])
+
     def _get_state_name(self, state: int | None) -> str:
         """Convert state number to human-readable name."""
         state_names = {
@@ -271,14 +351,35 @@ class BessaLunchDailyMenuSensor(CoordinatorEntity, SensorEntity):
                     meal_name = f"{meal_name} ({available} left)"
                 meal_names.append(meal_name)
             
+            # Parse courses from the combined description of the first menu item,
+            # or fall back to merging all descriptions if multiple items exist.
+            if len(menu_data) == 1:
+                combined = menu_data[0].get("description") or menu_data[0].get("name", "")
+            else:
+                combined = " ".join(
+                    item.get("description") or item.get("name", "") for item in menu_data
+                )
+            courses = _parse_menu_description(combined)
+
             attrs.update({
                 "meals": meals,
                 "meal_names": meal_names,
+                "menu": combined,
+                "soup_de": courses["soup_de"],
+                "soup_en": courses["soup_en"],
+                "main_dish_de": courses["main_dish_de"],
+                "main_dish_en": courses["main_dish_en"],
+                "dessert_de": courses["dessert_de"],
+                "dessert_en": courses["dessert_en"],
             })
         else:
             attrs.update({
                 "meals": [],
                 "meal_names": [],
+                "menu": None,
+                "soup_de": None, "soup_en": None,
+                "main_dish_de": None, "main_dish_en": None,
+                "dessert_de": None, "dessert_en": None,
             })
         
         return attrs

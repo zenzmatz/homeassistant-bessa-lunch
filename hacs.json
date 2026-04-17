@@ -5,5 +5,6 @@
   "filename": "bessa_lunch.zip",
   "country": ["AT"],
   "render_readme": true,
-  "homeassistant": "2024.1.0"
+  "homeassistant": "2024.1.0",
+  "icon": "https://raw.githubusercontent.com/zenzmatz/homeassistant-bessa-lunch/main/custom_components/bessa_lunch/icon.png"
 }

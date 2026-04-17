@@ -23,7 +23,7 @@ SERVICE_CANCEL_ORDER = "cancel_order"
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Bessa Lunch from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-    
+
     # Create API client
     api_client = BessaAPIClient(
         username=entry.data["username"],
