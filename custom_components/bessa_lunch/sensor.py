@@ -16,7 +16,35 @@ import re
 from . import BessaLunchDataUpdateCoordinator
 from .const import DOMAIN, DEVICE_NAME, DEVICE_MANUFACTURER, DEVICE_MODEL, ORDER_STATES
 
-_ALLERGEN_RE = re.compile(r'\([A-Z]{1,10}\)')
+_ALLERGEN_RE = re.compile(
+    r'(?:(?<!\w)[/(]?[A-Z]{2,10}\)?(?!\w)|\([A-Z]{1,10}(?:/[A-Z]{1,10})*\)|/[A-Z]\))'
+)
+_MERGED_BILINGUAL_BOUNDARY_RE = re.compile(r'(?<=[a-z])\s+(?=[A-ZÄÖÜ])')
+
+# Keywords that identify an M6-style combo menu (soup + small salad + dessert placeholder).
+_M6_KEYWORDS = ("kleiner salat", "kleines salat", "suppe / soup", "soup  salat", "salat / salad")
+
+_EMPTY_COURSES: dict[str, str | None] = {
+    "soup_de": None, "soup_en": None,
+    "main_dish_de": None, "main_dish_en": None,
+    "dessert_de": None, "dessert_en": None,
+}
+
+
+def _is_ascii_only(text: str) -> bool:
+    return all(ord(c) < 128 for c in text)
+
+
+def _is_m6_combo(description: str) -> bool:
+    """Return True for M6-style combo menus (soup + small salad + dessert placeholder).
+
+    The M6 description is always a generic label like:
+      'Suppe / Soup  Salat / Salad  Dessert'
+      'kleiner Salat mit Suppe und Dessert / small salad with soup and dessert'
+    rather than an actual dish description.
+    """
+    d = description.lower()
+    return any(kw in d for kw in _M6_KEYWORDS) and "dessert" in d
 
 
 def _split_bilingual(text: str) -> tuple[str, str | None]:
@@ -27,43 +55,211 @@ def _split_bilingual(text: str) -> tuple[str, str | None]:
     return text[:idx].strip(), text[idx + 1:].strip() or None
 
 
+def _parse_single_bilingual_main(description: str) -> dict[str, str | None] | None:
+    """Parse a single-course bilingual menu with no allergen markers.
+
+    Friday menus sometimes arrive as just "DE / EN" without any soup/dessert
+    structure or allergen separators. Map those directly to the main dish.
+    """
+    if _is_m6_combo(description) or _ALLERGEN_RE.search(description) or description.count("/") != 1:
+        return None
+
+    de, en = _split_bilingual(description)
+    if not de or not en:
+        return None
+
+    result = dict(_EMPTY_COURSES)
+    result["main_dish_de"] = de
+    result["main_dish_en"] = en
+    return result
+
+
+def _split_merged_bilingual_segment(
+    segment: str,
+) -> tuple[tuple[str, str | None], tuple[str, str | None]] | None:
+    """Split a merged "DE / EN DE / EN" segment into two bilingual courses.
+
+    Some Ginko menus miss the allergen separator between soup and main, leaving
+    a single segment with two slashes, e.g.:
+      "Karfiolcremesuppe / Cauliflower cream soup Brokkoli- Mandelrisotto / ..."
+    """
+    if segment.count("/") != 2:
+        return None
+
+    first_slash = segment.find("/")
+    second_slash = segment.rfind("/")
+    first_de = segment[:first_slash].strip()
+    middle = segment[first_slash + 1:second_slash].strip()
+    second_en = segment[second_slash + 1:].strip()
+    boundary = _MERGED_BILINGUAL_BOUNDARY_RE.search(middle)
+
+    if not first_de or not second_en or not boundary:
+        return None
+
+    first_en = middle[:boundary.start()].strip()
+    second_de = middle[boundary.end():].strip()
+    if not first_en or not second_de:
+        return None
+
+    return (first_de, first_en), (second_de, second_en)
+
+
 def _parse_menu_description(description: str) -> dict[str, str | None]:
     """Split a combined Bessa menu description into course attributes.
 
-    Bessa encodes all courses in one string, separated by allergen codes like
-    (AGLM), (ACFLMN), (ACGHO).  Each text block between allergen codes is one
-    course in serving order: soup first, main second, dessert third.
-    Each course is bilingual: 'German / English'.
-    """
-    empty: dict[str, str | None] = {
-        "soup_de": None, "soup_en": None,
-        "main_dish_de": None, "main_dish_en": None,
-        "dessert_de": None, "dessert_en": None,
-    }
-    if not description:
-        return empty
+    Handles three encoding formats used by the canteen:
 
-    raw_courses: list[str] = []
+    Format A – bilingual per course with allergen codes as delimiters:
+        'DE soup / EN soup(ALLERGENS) DE main / EN main(ALLERGENS) DE dessert / EN dessert(ALLERGENS)'
+
+    Format B – all-German courses + English block appended at end:
+        'DE soup(A) DE main(A) DE dessert(A) en soup, en main, en dessert'
+
+    Format C – inline English soup name leaks into segment after soup's allergen code:
+        'DE soup(ALLERGENS) EN soup, DE main(ALLERGENS) DE dessert(ALLERGENS) EN main, EN dessert'
+
+    Falls back to German text when no English translation is available.
+    """
+    if not description:
+        return dict(_EMPTY_COURSES)
+
+    single_bilingual_main = _parse_single_bilingual_main(description)
+    if single_bilingual_main is not None:
+        return single_bilingual_main
+
+    # Step 1: split by allergen codes to get raw segments
+    raw_segs: list[str] = []
     last_pos = 0
     for m in _ALLERGEN_RE.finditer(description):
-        segment = description[last_pos:m.start()].strip()
-        if segment:
-            raw_courses.append(segment)
+        seg = description[last_pos:m.start()].strip().rstrip("(/").strip()
+        if seg:
+            raw_segs.append(seg)
         last_pos = m.end()
     tail = description[last_pos:].strip()
-    if tail:
-        raw_courses.append(tail)
 
+    # Step 2: build (de, en) pairs per course
+    de_parts: list[str] = []
+    en_parts: list[str | None] = []
+
+    for i, seg in enumerate(raw_segs):
+        merged_courses = _split_merged_bilingual_segment(seg)
+        if merged_courses is not None:
+            for de, en in merged_courses:
+                de_parts.append(de)
+                en_parts.append(en)
+            continue
+
+        # For non-first segments: try inline English-prefix detection FIRST.
+        # Pattern: "english phrase, German Dish Name" where the english prefix
+        # leaked from the previous segment's allergen boundary.
+        # Heuristic: prefix is all-lowercase ASCII (English), suffix starts uppercase (German noun).
+        if i > 0:
+            ci = seg.find(", ")
+            if ci > 0:
+                prefix = seg[:ci].strip()
+                suffix = seg[ci + 2:].strip()
+                if (
+                    _is_ascii_only(prefix)
+                    and prefix
+                    and prefix[0].islower()
+                    and suffix
+                    and suffix[0].isupper()
+                    and len(prefix.split()) <= 7
+                ):
+                    # prefix = English name for the previous course
+                    if en_parts and en_parts[-1] is None:
+                        en_parts[-1] = prefix
+                    # suffix may itself be bilingual (e.g., "DE main / EN main")
+                    if "/" in suffix:
+                        de, en = _split_bilingual(suffix)
+                        de_parts.append(de)
+                        en_parts.append(en)
+                    else:
+                        de_parts.append(suffix)
+                        en_parts.append(None)
+                    continue
+
+        # Default: bilingual slash split or plain German segment
+        if "/" in seg:
+            de, en = _split_bilingual(seg)
+            de_parts.append(de)
+            en_parts.append(en)
+        else:
+            de_parts.append(seg)
+            en_parts.append(None)
+
+    # Step 3: collapse when ingredient-level allergen codes produced > 3 segments.
+    # Keep first (soup) and last (dessert), merge everything in between as main_dish.
+    if len(de_parts) > 3:
+        de_parts = [de_parts[0], " ".join(de_parts[1:-1]), de_parts[-1]]
+        en_first = en_parts[0]
+        en_middle = next((e for e in en_parts[1:-1] if e), None)
+        en_last = en_parts[-1]
+        en_parts = [en_first, en_middle, en_last]
+
+    # Step 4: assign trailing English block to courses that still lack translation.
+    # Prefer semicolons as separator (courses with commas in names won't be split).
+    if tail and de_parts:
+        if ";" in tail:
+            tail_parts = [p.strip() for p in tail.split(";") if p.strip()]
+        else:
+            tail_parts = [p.strip() for p in tail.split(", ") if p.strip()]
+        j = 0
+        for i in range(len(de_parts)):
+            if en_parts[i] is None and j < len(tail_parts):
+                en_parts[i] = tail_parts[j]
+                j += 1
+
+    # Step 5: map first three courses to soup / main_dish / dessert.
+    # Fall back to German when no English translation was found.
     keys = ["soup", "main_dish", "dessert"]
     result: dict[str, str | None] = {}
     for i, key in enumerate(keys):
-        if i < len(raw_courses):
-            de, en = _split_bilingual(raw_courses[i])
+        if i < len(de_parts):
+            de = de_parts[i]
+            en = en_parts[i] if en_parts[i] else de
             result[f"{key}_de"] = de
             result[f"{key}_en"] = en
         else:
             result[f"{key}_de"] = None
             result[f"{key}_en"] = None
+    return result
+
+
+def _fill_m6_from_reference(
+    items: list[dict[str, Any]],
+    parsed: list[dict[str, str | None]],
+) -> list[dict[str, str | None]]:
+    """For M6 combo items, substitute soup/dessert from the first non-M6 reference item.
+
+    M6 is always: same soup as M1/M2/M3/M5 + small salad + same dessert as M1.
+    The M6 description is a generic placeholder and carries no real course info.
+    """
+    # Find the reference: first non-M6 item that has a valid soup
+    ref_soup_de = ref_soup_en = ref_dessert_de = ref_dessert_en = None
+    for item, courses in zip(items, parsed):
+        if not _is_m6_combo(item.get("description", "")) and courses.get("soup_de"):
+            ref_soup_de = courses["soup_de"]
+            ref_soup_en = courses["soup_en"] or ref_soup_de
+            ref_dessert_de = courses["dessert_de"]
+            ref_dessert_en = courses["dessert_en"] or ref_dessert_de
+            break
+
+    result = []
+    for item, courses in zip(items, parsed):
+        if _is_m6_combo(item.get("description", "")):
+            updated = dict(courses)
+            if ref_soup_de:
+                updated["soup_de"] = ref_soup_de
+                updated["soup_en"] = ref_soup_en
+            if ref_dessert_de:
+                updated["dessert_de"] = ref_dessert_de
+                updated["dessert_en"] = ref_dessert_en
+            updated["main_dish_de"] = "Kleiner Salat"
+            updated["main_dish_en"] = "Small salad"
+            result.append(updated)
+        else:
+            result.append(courses)
     return result
 
 
@@ -173,10 +369,9 @@ class BessaLunchDailyOrderSensor(CoordinatorEntity, SensorEntity):
             order_date = order.get("date", "")
             pickup_time = order_date[11:16] if len(order_date) > 11 else None
             
-            # Parse courses from the combined menu description.
-            # Bessa bundles all courses (soup / main / dessert) into a single
-            # order item whose description encodes them separated by allergen
-            # codes, e.g. "Zwiebelsuppe(AGLM) Ramen...(ACFLMN) Balisto(ACGHO)".
+            # Parse courses from the order item's description.
+            # If the ordered item is an M6 combo (soup + salad + dessert),
+            # substitute the real soup/dessert from the day's full menu.
             combined_description = ""
             if len(items) == 1:
                 combined_description = items[0].get("description") or items[0].get("name", "")
@@ -186,6 +381,15 @@ class BessaLunchDailyOrderSensor(CoordinatorEntity, SensorEntity):
                 )
 
             courses = _parse_menu_description(combined_description)
+            if _is_m6_combo(combined_description):
+                menu_items = self._get_menu_for_day()
+                if menu_items:
+                    menu_parsed = [_parse_menu_description(m.get("description", "")) for m in menu_items]
+                    filled = _fill_m6_from_reference(menu_items, menu_parsed)
+                    for mitem, mc in zip(menu_items, filled):
+                        if _is_m6_combo(mitem.get("description", "")):
+                            courses = mc
+                            break
 
             attrs.update({
                 "order_id": order.get("id"),
@@ -351,15 +555,27 @@ class BessaLunchDailyMenuSensor(CoordinatorEntity, SensorEntity):
                     meal_name = f"{meal_name} ({available} left)"
                 meal_names.append(meal_name)
             
-            # Parse courses from the combined description of the first menu item,
-            # or fall back to merging all descriptions if multiple items exist.
-            if len(menu_data) == 1:
-                combined = menu_data[0].get("description") or menu_data[0].get("name", "")
-            else:
-                combined = " ".join(
-                    item.get("description") or item.get("name", "") for item in menu_data
-                )
-            courses = _parse_menu_description(combined)
+            # Parse each menu item individually, then apply M6 substitution.
+            all_parsed = [_parse_menu_description(item.get("description", "")) for item in menu_data]
+            all_parsed = _fill_m6_from_reference(menu_data, all_parsed)
+
+            # Enrich each meal dict with its own parsed courses.
+            for meal, parsed in zip(meals, all_parsed):
+                meal["soup_de"] = parsed["soup_de"]
+                meal["soup_en"] = parsed["soup_en"]
+                meal["main_dish_de"] = parsed["main_dish_de"]
+                meal["main_dish_en"] = parsed["main_dish_en"]
+                meal["dessert_de"] = parsed["dessert_de"]
+                meal["dessert_en"] = parsed["dessert_en"]
+
+            # Top-level course attributes = first non-M6 item (M1-style primary menu).
+            courses = all_parsed[0] if all_parsed else dict(_EMPTY_COURSES)
+            for item, parsed in zip(menu_data, all_parsed):
+                if not _is_m6_combo(item.get("description", "")):
+                    courses = parsed
+                    break
+
+            combined = menu_data[0].get("description", "") if menu_data else ""
 
             attrs.update({
                 "meals": meals,
